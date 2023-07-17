@@ -1,0 +1,8 @@
+app_servers:
+  hosts:
+    app1:
+      ansible_host: "18.232.139.35"
+    app2:
+      ansible_host: "184.73.5.8"
+  vars:
+    DB_PRIVATE_IP: "172.31.82.57"

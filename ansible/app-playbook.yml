@@ -1,0 +1,54 @@
+---
+- name: Configure app server
+  hosts: app_servers
+  remote_user: ubuntu
+  become: yes # sudo
+
+  tasks:
+  #Setup Docker
+  - name: Install required system packages for Docker   
+    apt:
+      pkg:
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - software-properties-common
+        - python3-pip
+        - virtualenv
+        - python3-setuptools
+      state: latest
+      update_cache: true
+
+  - name: Add Docker GPG apt Key
+    apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
+
+  - name: Add Docker Repository
+    apt_repository:
+      repo: deb https://download.docker.com/linux/ubuntu jammy stable
+      state: present
+
+  - name: Update apt and install docker-ce
+    apt:
+      name: docker-ce
+      state: latest
+      update_cache: true
+  
+  # Run the app container using the docker image and connecting to the database
+  - name: Start app container
+    community.docker.docker_container:
+      name: foo_app
+      image: patrmitacr.azurecr.io/assignment2app:1.0.0
+      state: started
+      env:
+        DB_HOSTNAME: "{{ DB_PRIVATE_IP }}"   # DB_PRIVATE_IP is variable defined in db-servers-hosts
+        DB_PORT: "5432"
+        DB_USERNAME: "pete"
+        DB_PASSWORD: "devops"
+        PORT: "3001"
+      published_ports:
+      - "0.0.0.0:80:3001"
+    tags:
+      - app
+  

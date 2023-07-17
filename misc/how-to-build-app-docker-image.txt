@@ -1,0 +1,5 @@
+How to build Docker image:
+
+```
+docker buildx build --platform linux/amd64,linux/arm64 -t patrmitacr.azurecr.io/assignment2app:1.0.0 . --push
+```

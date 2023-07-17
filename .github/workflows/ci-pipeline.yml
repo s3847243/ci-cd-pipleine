@@ -1,0 +1,131 @@
+name: Deploy Infrastructure
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    branches:
+    - main
+  workflow_dispatch:
+
+jobs:
+
+  terraform-s3-bucket:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terra-bucket
+    steps:
+    - uses: actions/checkout@v3
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+        aws-region: us-east-1
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: "1.4.0" 
+    - name: Initialize Terraform
+      run: terraform init
+    - name: Deploy Infrastructure 
+      run: terraform apply -auto-approve || true
+
+  terraform-main:
+    
+    needs: terraform-s3-bucket
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ./infra
+    
+    outputs:
+      app_instance1_public_ip: ${{ steps.instance_ips.outputs.app_instance1_public_ip }}
+      app_instance2_public_ip: ${{ steps.instance_ips.outputs.app_instance2_public_ip }}
+      db_instance_public_ip: ${{ steps.instance_ips.outputs.db_instance_public_ip }}
+      db_instance_private_ip: ${{ steps.instance_ips.outputs.db_instance_private_ip }}
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+        aws-region: us-east-1
+    
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: "1.4.0" 
+        terraform_wrapper: false
+    
+    - name: Initialize Terraform
+      run: terraform init
+    
+    - name: Create temporary public key file
+      run: |
+        echo "${{ secrets.PUBLIC_KEY_FILE }}" > public_key_file.pub
+    
+    - name: Deploy Infrastructure 
+      run:
+        terraform apply -auto-approve -var="public_key_file=public_key_file.pub" 
+    
+    - name: Output required IP's
+      id: instance_ips
+      run: |
+        echo "::set-output name=app_instance1_public_ip::$(terraform output  app_instance1_public_ip)"
+        echo "::set-output name=app_instance2_public_ip::$(terraform output  app_instance2_public_ip)"
+        echo "::set-output name=db_instance_public_ip::$(terraform output  db_instance_public_ip)"
+        echo "::set-output name=db_instance_private_ip::$(terraform output db_instance_private_ip)"
+    - name: Delete temporary public_key_file
+      run: rm public_key_file.pub
+
+  ansible:
+
+    needs: terraform-main 
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./ansible
+    steps:
+    - name: checkout
+      uses: actions/checkout@v3
+    
+    - name: Set up Ansible
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.8'
+    
+    - name: Update ansible hosts (IP's) and DB-HOSTNAME
+      run: |
+        echo "app_servers:" > app-servers-hosts.yml
+        echo "  hosts:" >> app-servers-hosts.yml
+        echo "    app1:" >> app-servers-hosts.yml
+        echo "      ansible_host: ${{ needs.terraform-main.outputs.app_instance1_public_ip }}" >> app-servers-hosts.yml
+        echo "    app2:" >> app-servers-hosts.yml
+        echo "      ansible_host: ${{ needs.terraform-main.outputs.app_instance2_public_ip }}" >> app-servers-hosts.yml
+        echo "  vars:" >> app-servers-hosts.yml
+        echo "      DB_PRIVATE_IP: ${{ needs.terraform-main.outputs.db_instance_private_ip }}" >> app-servers-hosts.yml
+
+        echo "db_servers:" > db-servers-hosts.yml
+        echo "  hosts:" >> db-servers-hosts.yml
+        echo "    db1:" >> db-servers-hosts.yml
+        echo "      ansible_host: ${{ needs.terraform-main.outputs.db_instance_public_ip }}" >> db-servers-hosts.yml
+
+    - name: Create Private Key file 
+      run: |
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > github_sdo_key
+        chmod 600 github_sdo_key
+
+    - name: Run Ansible db-playbook
+      run: |
+        ansible-playbook db-playbook.yml -i db-servers-hosts.yml --private-key github_sdo_key -e 'ansible_ssh_common_args="-o StrictHostKeyChecking=no"'
+    - name: Run Ansible app-playbook
+      run: |
+        ansible-playbook app-playbook.yml -i app-servers-hosts.yml --private-key github_sdo_key -e 'ansible_ssh_common_args="-o StrictHostKeyChecking=no"'

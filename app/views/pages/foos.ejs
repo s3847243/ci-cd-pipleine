@@ -1,0 +1,16 @@
+<html>
+<head>
+<title>Foo app - List of foos</title>
+</head>
+<body>
+<h1>Foo app - List of foos</h1>
+<ul>
+ <% foos.forEach(function(item) { %>
+        <li>
+          <b><%= item.name %></b>, height: <%= item.height %> 
+        </li>
+      <% }); %>
+</ul>
+<hr />
+<p>Click <a href="/">here</a> to go back to the home page.</p>
+</html>

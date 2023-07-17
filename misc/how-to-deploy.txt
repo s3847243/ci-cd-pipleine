@@ -1,0 +1,30 @@
+How to deploy the Foo app
+-------------------------
+
+The Foo app is a simple app but surprisingly profitable for the company. To deploy it to a new production environment, please follow the steps below:
+
+1. Deploy EC2 instance with SSH key pair. Run Ubuntu 22.04 on it. Write down the instance's public IP address, so you can access the app's web UI.
+
+2. Install Docker on the EC2 instance.
+
+3. Run the PostgreSQL database container, with the data snapshot loaded in:
+
+```
+docker run --name foo_db -e POSTGRES_PASSWORD=devops -e POSTGRES_USER=pete -e POSTGRES_DB=foo -p 0.0.0.0:5432:5432 -v "$PWD"/misc/snapshot-prod-data.sql:/docker-entrypoint-initdb.d/init.sql -d postgres:14.7
+```
+
+4. Run the application container:
+
+```
+docker run --name foo_app --add-host host.docker.internal:host-gateway -e PORT=3001 -e DB_HOSTNAME=host.docker.internal -e DB_PORT=5432 -e DB_USERNAME=pete -e DB_PASSWORD=devops -p 0.0.0.0:80:3001 -d patrmitacr.azurecr.io/assignment2app:1.0.0
+```
+
+TODO: if the database and application containers are on the same machine, it might be better to use docker compose to get the two containers talking to each other, instead of publishing the database container's port to the host's network stack. However if we put the database container on a separate machine then obviously we can't use docker compose. Something to think about.
+
+5. Test the application by going to `http://${APP_IP_ADDRESS}/` in a web browser (where `${APP_IP_ADDRESS}` is the IP address of the EC2 instance). Click through to the `/foos` page to ensure that the database connection is working.
+
+6. Add a Security Group to the EC2 instance to only allow inbound traffic on TCP ports 22 and 80, and outbound traffic on TCP port 443. (As long as the database is on the same instance as the app, you don't need to worry about port 5432, but if the database was on a separate server then you would need a rule for that.)
+
+7. Do other steps we forgot about / fix things that are not working.
+
+If you get stuck, ring Pete. If he is on holiday, wait until he comes back. ha ha
